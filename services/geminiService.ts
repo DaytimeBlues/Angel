@@ -5,10 +5,17 @@ import { WeatherType, ReflectionResponse } from "../types";
 const MAX_RETRIES = 3;
 
 export class GeminiService {
-  private ai: GoogleGenAI;
+  private ai: GoogleGenAI | null = null;
 
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  private getAI(): GoogleGenAI {
+    if (!this.ai) {
+      const apiKey = process.env.API_KEY || '';
+      if (!apiKey) {
+        throw new Error("No API key configured. Please set GEMINI_API_KEY.");
+      }
+      this.ai = new GoogleGenAI({ apiKey });
+    }
+    return this.ai;
   }
 
   private async delay(ms: number) {
@@ -29,10 +36,11 @@ export class GeminiService {
     `;
 
     let lastError: any;
-    
+    const ai = this.getAI();
+
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
-        const response = await this.ai.models.generateContent({
+        const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
           config: {
@@ -50,11 +58,10 @@ export class GeminiService {
 
         const text = response.text;
         if (!text) throw new Error("Empty response from model");
-        
+
         return JSON.parse(text) as ReflectionResponse;
       } catch (error: any) {
         lastError = error;
-        // If it's a 429 (Rate Limit) or 5xx, wait and retry
         const isTransient = error?.status === 429 || error?.status >= 500 || !error?.status;
         if (isTransient && i < MAX_RETRIES - 1) {
           const backoff = Math.pow(2, i) * 1000;
